@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Moona — Cinematic Mood Curator</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body class="luxury">
+  <header class="hero">
+    <div class="header-row">
+      <div class="brand">MOONA</div>
+      <div class="header-actions">
+        <button id="themeToggle" class="icon-btn" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
+      </div>
+    </div>
+
+    <p class="tagline">Cinematic moods & timeless soundtracks</p>
+
+    <div class="buttons">
+      <button data-mood="calm">Calm</button>
+      <button data-mood="romantic">Romantic</button>
+      <button data-mood="dreamy">Dreamy</button>
+      <button data-mood="motivated">Motivated</button>
+      <button data-mood="sad">Sad</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="result" class="result-area">
+      <div id="placeholder" class="placeholder">Select your mood — I’ll curate cinematic beauty for you.</div>
+    </section>
+  </main>
+
+  <!-- Modal for movie details -->
+  <div id="movieModal" class="modal" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-panel" role="document" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalClose" aria-label="Close details">✕</button>
+      <div class="modal-body">
+        <img id="modalPoster" src="/static/poster-placeholder.png" alt="poster" />
+        <div class="modal-meta">
+          <h2 id="modalTitle">Title</h2>
+          <p class="meta-line" id="modalYearGenre">Year • Genre</p>
+          <p id="modalPlot" class="modal-plot">Plot / synopsis goes here.</p>
+          <div id="modalWhy" class="modal-why"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* -------------------------
+   Theme (dark/light)
+   ------------------------- */
+const themeToggle = document.getElementById('themeToggle');
+const root = document.documentElement;
+function applyTheme(theme) {
+  if (theme === 'dark') {
+    document.body.classList.add('noir');
+    themeToggle.textContent = '☀️';
+  } else {
+    document.body.classList.remove('noir');
+    themeToggle.textContent = '🌙';
+  }
+  localStorage.setItem('moona_theme', theme);
+}
+const saved = localStorage.getItem('moona_theme') || 'light';
+applyTheme(saved);
+themeToggle.addEventListener('click', () => {
+  const current = document.body.classList.contains('noir') ? 'dark' : 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+});
+
+/* -------------------------
+   Modal logic
+   ------------------------- */
+const modal = document.getElementById('movieModal');
+const modalBackdrop = document.getElementById('modalBackdrop');
+const modalClose = document.getElementById('modalClose');
+const modalPoster = document.getElementById('modalPoster');
+const modalTitle = document.getElementById('modalTitle');
+const modalYearGenre = document.getElementById('modalYearGenre');
+const modalPlot = document.getElementById('modalPlot');
+const modalWhy = document.getElementById('modalWhy');
+
+function openModal(movie) {
+  modalPoster.src = movie.poster_url || '/static/poster-placeholder.png';
+  modalPoster.alt = movie.title;
+  modalTitle.textContent = movie.title + (movie.year ? ` (${movie.year})` : '');
+  const genreText = movie.genre ? movie.genre : '';
+  modalYearGenre.textContent = `${movie.year || ''}${(movie.year && genreText) ? ' • ' : ''}${genreText}`;
+  modalPlot.textContent = movie.plot || 'Plot not available.';
+  modalWhy.textContent = movie.why ? `Why: ${movie.why}` : '';
+  modal.setAttribute('aria-hidden', 'false');
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  modal.setAttribute('aria-hidden', 'true');
+  modal.classList.remove('open');
+  document.body.style.overflow = '';
+}
+modalBackdrop.addEventListener('click', closeModal);
+modalClose.addEventListener('click', closeModal);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+/* -------------------------
+   Fetching & rendering grid
+   ------------------------- */
+async function sendMood(mood) {
+  const result = document.getElementById("result");
+  result.innerHTML = `<div class='loading'>Curating films for <b>${mood}</b> mood…</div>`;
+  try {
+    const resp = await fetch("/recommend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ mood })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      result.innerHTML = `<div class='error'>${data.error}</div>`;
+      return;
+    }
+
+    const rec = data.recommendations || {};
+    const movies = rec.movies || [];
+    const songs = rec.songs || [];
+
+    // Build grid
+    let html = `<div class='grid'>`;
+    for (const m of movies) {
+      const poster = m.poster_url || '/static/poster-placeholder.png';
+      const titleEsc = (m.title || '').replace(/"/g,'&quot;');
+      const whyText = m.why ? `<p class="card-why">${m.why}</p>` : '';
+      html += `
+        <div class='card' role="article">
+          <img src='${poster}' alt='${titleEsc}' loading="lazy" />
+          <button class="info-btn" aria-label="More info about ${titleEsc}" data-movie='${encodeURIComponent(JSON.stringify(m))}'>ℹ️</button>
+          <div class='overlay'>
+            <h3>${m.title || ''}${m.year ? ` (${m.year})` : ''}</h3>
+          </div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+
+    // Songs
+    if (songs.length > 0) {
+      html += `<div class='songs'><h2>Suggested Songs</h2><ul>`;
+      for (const s of songs) {
+        html += `<li>${s.title} ${s.artist ? '— ' + s.artist : ''} <span class="why-inline">${s.why ? ' • ' + s.why : ''}</span></li>`;
+      }
+      html += `</ul></div>`;
+    }
+
+    result.innerHTML = html;
+
+    // Wire info buttons
+    document.querySelectorAll('.info-btn').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        const mjson = decodeURIComponent(btn.getAttribute('data-movie'));
+        try {
+          const movie = JSON.parse(mjson);
+          openModal(movie);
+        } catch (e) {
+          console.error('parse movie data', e);
+        }
+      });
+    });
+
+  } catch (e) {
+    result.innerHTML = `<div class='error'>${e}</div>`;
+  }
+}
+
+/* wire up mood buttons */
+document.querySelectorAll('.buttons button').forEach(b => {
+  b.addEventListener('click', () => sendMood(b.dataset.mood));
+});
+</script>
+</body>
+</html>
